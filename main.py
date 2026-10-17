@@ -26,8 +26,13 @@ def remove_file(path):
 async def convert(audio: UploadFile = File(...)):
     key = os.getenv('HUME_API_KEY', '').strip()
     voice = os.getenv('HUME_TARGET_VOICE_ID', '').strip()
-    if not key or not voice:
-        raise HTTPException(503, 'Voice conversion setup baaki hai. Render mein HUME_API_KEY aur HUME_TARGET_VOICE_ID set karne honge.')
+    provider = os.getenv('HUME_TARGET_VOICE_PROVIDER', 'HUME_AI').strip().upper()
+    if not key:
+        raise HTTPException(503, 'Hume AI API key missing hai. Render Environment mein HUME_API_KEY add karna hoga.')
+    if not voice:
+        raise HTTPException(503, 'Target voice ID missing hai. Render Environment mein HUME_TARGET_VOICE_ID add karna hoga.')
+    if provider not in {'HUME_AI', 'CUSTOM_VOICE'}:
+        raise HTTPException(503, 'HUME_TARGET_VOICE_PROVIDER HUME_AI ya CUSTOM_VOICE hona chahiye.')
     data = await audio.read(MAX_BYTES + 1)
     await audio.close()
     if not data: raise HTTPException(400, 'Audio file khaali hai.')
@@ -40,7 +45,7 @@ async def convert(audio: UploadFile = File(...)):
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as f:
             f.write(data); src = f.name
         with open(src, 'rb') as f:
-            r = requests.post('https://api.hume.ai/v0/tts/voice_conversion/file', headers={'X-Hume-Api-Key': key}, files={'audio': (name, f, audio.content_type or 'application/octet-stream')}, data={'voice[id]': voice, 'voice[provider]': 'CUSTOM_VOICE'}, timeout=(15,180))
+            r = requests.post('https://api.hume.ai/v0/tts/voice_conversion/file', headers={'X-Hume-Api-Key': key}, files={'audio': (name, f, audio.content_type or 'application/octet-stream')}, data={'voice[id]': voice, 'voice[provider]': provider}, timeout=(15,180))
         if r.status_code >= 400: raise HTTPException(502, 'Hume voice service error (' + str(r.status_code) + '): ' + r.text[:400])
         if not r.content: raise HTTPException(502, 'AI service ne audio return nahi kiya.')
         with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as f:
