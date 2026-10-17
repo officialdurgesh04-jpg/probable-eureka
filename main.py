@@ -16,17 +16,25 @@ def home():
 
 @app.get('/api/status')
 def status():
-    return {'api_key_configured': bool(os.getenv('HUME_API_KEY')), 'target_voice_configured': bool(os.getenv('HUME_TARGET_VOICE_ID'))}
+    return {'api_key_configured': bool(os.getenv('HUME_API_KEY')), 'target_voice_configured': bool(os.getenv('HUME_TARGET_VOICE_ID')), 'original_voice_configured': bool(os.getenv('HUME_ORIGINAL_VOICE_ID'))}
 
 def remove_file(path):
     try: os.remove(path)
     except FileNotFoundError: pass
 
 @app.post('/api/convert')
-async def convert(audio: UploadFile = File(...)):
+async def convert(audio: UploadFile = File(...), voice_choice: str = 'default'):
     key = os.getenv('HUME_API_KEY', '').strip()
-    voice = os.getenv('HUME_TARGET_VOICE_ID', '').strip()
-    provider = os.getenv('HUME_TARGET_VOICE_PROVIDER', 'HUME_AI').strip().upper()
+    if voice_choice == 'original':
+        voice = os.getenv('HUME_ORIGINAL_VOICE_ID', '').strip()
+        provider = os.getenv('HUME_ORIGINAL_VOICE_PROVIDER', 'CUSTOM_VOICE').strip().upper()
+        if not voice:
+            raise HTTPException(503, 'Aapki sample voice abhi Hume mein custom voice ke roop mein configure nahi hui. HUME_ORIGINAL_VOICE_ID set karna hoga.')
+    elif voice_choice == 'default':
+        voice = os.getenv('HUME_TARGET_VOICE_ID', '').strip()
+        provider = os.getenv('HUME_TARGET_VOICE_PROVIDER', 'HUME_AI').strip().upper()
+    else:
+        raise HTTPException(400, 'Voice option valid nahi hai.')
     if not key:
         raise HTTPException(503, 'Hume AI API key missing hai. Render Environment mein HUME_API_KEY add karna hoga.')
     if not voice:
