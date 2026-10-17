@@ -16,7 +16,7 @@ def home():
 
 @app.get('/api/status')
 def status():
-    return {'api_key_configured': bool(os.getenv('HUME_API_KEY')), 'target_voice_configured': bool(os.getenv('HUME_TARGET_VOICE_ID')), 'original_voice_configured': bool(os.getenv('HUME_ORIGINAL_VOICE_ID'))}
+    return {'api_key_configured': bool(os.getenv('HUME_API_KEY')), 'target_voice_configured': bool(os.getenv('HUME_TARGET_VOICE_ID')), 'original_voice_configured': bool(os.getenv('HUME_ORIGINAL_VOICE_ID')), 'elevenlabs_configured': bool(os.getenv('ELEVENLABS_API_KEY') and os.getenv('ELEVENLABS_VOICE_ID'))}
 
 def remove_file(path):
     try: os.remove(path)
@@ -28,6 +28,25 @@ async def convert(audio: UploadFile = File(...), voice_choice: str = 'default', 
         raise HTTPException(400, 'Mode valid nahi hai.')
     if conversion_mode == 'singing':
         raise HTTPException(503, 'Singing conversion abhi enabled nahi hai. Current Hume voice-conversion endpoint singing ke liye reliable support guarantee nahi karta; singing-compatible model configure hone ke baad yeh mode enable hoga. Filhaal Speech mode use karo.')
+    if conversion_mode == 'speech' and os.getenv('VOICE_PROVIDER', 'hume').strip().lower() == 'elevenlabs':
+        key = os.getenv('ELEVENLABS_API_KEY', '').strip()
+        voice = os.getenv('ELEVENLABS_VOICE_ID', '').strip()
+        if not key or not voice:
+            raise HTTPException(503, 'ElevenLabs setup baaki hai. Render Environment mein ELEVENLABS_API_KEY aur ELEVENLABS_VOICE_ID set karo.')
+        data = await audio.read(MAX_BYTES + 1)
+        await audio.close()
+        if not data: raise HTTPException(400, 'Audio file khaali hai.')
+        if len(data) > MAX_BYTES: raise HTTPException(413, 'Audio 20 MB se badi hai.')
+        name = Path(audio.filename or 'recording.wav').name
+        try:
+            r = requests.post('https://api.elevenlabs.io/v1/speech-to-speech/' + voice, headers={'xi-api-key': key}, files={'audio': (name, data, audio.content_type or 'audio/wav')}, data={'model_id': os.getenv('ELEVENLABS_MODEL_ID', 'eleven_multilingual_sts_v2')}, timeout=(15,180))
+            if r.status_code >= 400: raise HTTPException(502, 'ElevenLabs voice service error (' + str(r.status_code) + '): ' + r.text[:400])
+            if not r.content: raise HTTPException(502, 'ElevenLabs ne audio return nahi kiya.')
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as f:
+                f.write(r.content); out = f.name
+            return FileResponse(out, media_type='audio/mpeg', filename='awaaz-ai-converted.mp3', background=BackgroundTask(remove_file, out))
+        except requests.Timeout: raise HTTPException(504, 'Conversion timeout hua. Chhoti recording try karo.')
+        except requests.RequestException as e: raise HTTPException(502, 'ElevenLabs service se connection nahi hua: ' + type(e).__name__)
     key = os.getenv('HUME_API_KEY', '').strip()
     if voice_choice == 'original':
         voice = os.getenv('HUME_ORIGINAL_VOICE_ID', '').strip()
