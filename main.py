@@ -23,7 +23,11 @@ def remove_file(path):
     except FileNotFoundError: pass
 
 @app.post('/api/convert')
-async def convert(audio: UploadFile = File(...), voice_choice: str = 'default'):
+async def convert(audio: UploadFile = File(...), voice_choice: str = 'default', conversion_mode: str = 'speech'):
+    if conversion_mode not in {'speech', 'singing'}:
+        raise HTTPException(400, 'Mode valid nahi hai.')
+    if conversion_mode == 'singing':
+        raise HTTPException(503, 'Singing conversion abhi enabled nahi hai. Current Hume voice-conversion endpoint singing ke liye reliable support guarantee nahi karta; singing-compatible model configure hone ke baad yeh mode enable hoga. Filhaal Speech mode use karo.')
     key = os.getenv('HUME_API_KEY', '').strip()
     if voice_choice == 'original':
         voice = os.getenv('HUME_ORIGINAL_VOICE_ID', '').strip()
