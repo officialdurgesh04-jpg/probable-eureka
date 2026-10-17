@@ -16,21 +16,44 @@ def home():
 
 @app.get('/api/status')
 def status():
-    return {'api_key_configured': bool(os.getenv('HUME_API_KEY')), 'target_voice_configured': bool(os.getenv('HUME_TARGET_VOICE_ID')), 'original_voice_configured': bool(os.getenv('HUME_ORIGINAL_VOICE_ID')), 'elevenlabs_configured': bool(os.getenv('ELEVENLABS_API_KEY') and os.getenv('ELEVENLABS_VOICE_ID'))}
+    return {'api_key_configured': bool(os.getenv('HUME_API_KEY')), 'target_voice_configured': bool(os.getenv('HUME_TARGET_VOICE_ID')), 'original_voice_configured': bool(os.getenv('HUME_ORIGINAL_VOICE_ID')), 'elevenlabs_configured': bool(os.getenv('ELEVENLABS_API_KEY'))}
 
 def remove_file(path):
     try: os.remove(path)
     except FileNotFoundError: pass
 
+@app.get('/api/elevenlabs/voices')
+def elevenlabs_voices():
+    key = os.getenv('ELEVENLABS_API_KEY', '').strip()
+    if not key:
+        raise HTTPException(503, 'ElevenLabs API key configure nahi hai.')
+    try:
+        r = requests.get('https://api.elevenlabs.io/v1/voices', headers={'xi-api-key': key}, timeout=(10,30))
+        if r.status_code >= 400:
+            raise HTTPException(502, 'ElevenLabs voices list error (' + str(r.status_code) + ').')
+        payload = r.json()
+        voices = []
+        for v in payload.get('voices', []):
+            labels = v.get('labels') or {}
+            gender = str(labels.get('gender', '')).lower()
+            if gender and gender not in {'female', 'woman'}:
+                continue
+            voices.append({'voice_id': v.get('voice_id'), 'name': v.get('name'), 'gender': labels.get('gender', ''), 'accent': labels.get('accent', ''), 'description': labels.get('description', ''), 'category': v.get('category', '')})
+        return {'voices': voices}
+    except requests.Timeout:
+        raise HTTPException(504, 'ElevenLabs voice list timeout hua.')
+    except requests.RequestException:
+        raise HTTPException(502, 'ElevenLabs se connect nahi ho paaya.')
+
 @app.post('/api/convert')
-async def convert(audio: UploadFile = File(...), voice_choice: str = 'default', conversion_mode: str = 'speech'):
+async def convert(audio: UploadFile = File(...), voice_choice: str = 'default', conversion_mode: str = 'speech', target_voice_id: str = ''):
     if conversion_mode not in {'speech', 'singing'}:
         raise HTTPException(400, 'Mode valid nahi hai.')
     if conversion_mode == 'singing':
         raise HTTPException(503, 'Singing conversion abhi enabled nahi hai. Current Hume voice-conversion endpoint singing ke liye reliable support guarantee nahi karta; singing-compatible model configure hone ke baad yeh mode enable hoga. Filhaal Speech mode use karo.')
     if conversion_mode == 'speech' and os.getenv('VOICE_PROVIDER', 'hume').strip().lower() == 'elevenlabs':
         key = os.getenv('ELEVENLABS_API_KEY', '').strip()
-        voice = os.getenv('ELEVENLABS_VOICE_ID', '').strip()
+        voice = (target_voice_id or os.getenv('ELEVENLABS_VOICE_ID', '')).strip()
         if not key or not voice:
             raise HTTPException(503, 'ElevenLabs setup baaki hai. Render Environment mein ELEVENLABS_API_KEY aur ELEVENLABS_VOICE_ID set karo.')
         data = await audio.read(MAX_BYTES + 1)
